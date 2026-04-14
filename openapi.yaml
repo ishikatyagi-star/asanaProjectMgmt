@@ -7,7 +7,7 @@ info:
     All endpoints except /health require a Bearer token in the Authorization header.
 
 servers:
-  - url: https://YOUR_DEPLOYED_URL
+  - url: asanaprojectmgmt-production.up.railway.app
     description: Production (replace with your Railway/Render URL after deployment)
 
 security:
