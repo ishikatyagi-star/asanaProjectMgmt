@@ -1,0 +1,410 @@
+openapi: 3.1.0
+info:
+  title: Asana GPT Action API
+  version: 1.0.0
+  description: >
+    Manage Asana workspaces, projects, and tasks via a secure webhook proxy.
+    All endpoints except /health require a Bearer token in the Authorization header.
+
+servers:
+  - url: https://YOUR_DEPLOYED_URL
+    description: Production (replace with your Railway/Render URL after deployment)
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Shared secret set in the WEBHOOK_SECRET environment variable.
+        Paste the same value into the Custom GPT Action authentication config.
+
+  schemas:
+    AsanaResource:
+      type: object
+      properties:
+        gid:
+          type: string
+          description: Globally unique identifier
+        name:
+          type: string
+        resource_type:
+          type: string
+      required:
+        - gid
+        - name
+
+    DataList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AsanaResource'
+      required:
+        - data
+
+    DataSingle:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/AsanaResource'
+      required:
+        - data
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    CreateProjectRequest:
+      type: object
+      required:
+        - name
+        - workspace
+      properties:
+        name:
+          type: string
+          description: Project name
+        workspace:
+          type: string
+          description: Workspace GID
+        color:
+          type: string
+          description: Project color (e.g. "light-green")
+        notes:
+          type: string
+          description: Project description
+
+    CreateTaskRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Task name
+        workspace:
+          type: string
+          description: Workspace GID (required if projects is not provided)
+        projects:
+          type: array
+          items:
+            type: string
+          description: Project GIDs to add the task to
+        assignee:
+          type: string
+          description: Assignee GID or "me"
+        due_on:
+          type: string
+          format: date
+          description: Due date (YYYY-MM-DD)
+        notes:
+          type: string
+          description: Task description
+
+    UpdateTaskRequest:
+      type: object
+      description: At least one field must be provided
+      properties:
+        name:
+          type: string
+        assignee:
+          type: string
+          description: Assignee GID or "me" or null to unassign
+        due_on:
+          type: string
+          format: date
+          description: Due date (YYYY-MM-DD) or null to remove
+        notes:
+          type: string
+        completed:
+          type: boolean
+          description: Mark task complete or incomplete
+
+    AddProjectRequest:
+      type: object
+      required:
+        - project
+      properties:
+        project:
+          type: string
+          description: GID of the project to add the task to
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid Bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Check that the service is running
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /workspaces:
+    get:
+      operationId: listWorkspaces
+      summary: List all Asana workspaces the token has access to
+      responses:
+        '200':
+          description: List of workspaces
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workspaces/{id}/projects:
+    get:
+      operationId: listWorkspaceProjects
+      summary: List all projects in a workspace
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Workspace GID
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workspaces/{id}/users:
+    get:
+      operationId: listWorkspaceUsers
+      summary: List members of a workspace (useful for resolving names to GIDs)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Workspace GID
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /projects:
+    post:
+      operationId: createProject
+      summary: Create a new project in a workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSingle'
+        '400':
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /projects/{id}/tasks:
+    get:
+      operationId: listProjectTasks
+      summary: List all tasks in a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Project GID
+      responses:
+        '200':
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tasks:
+    post:
+      operationId: createTask
+      summary: Create a new task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSingle'
+        '400':
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tasks/{id}:
+    patch:
+      operationId: updateTask
+      summary: Update a task's name, assignee, due date, notes, or completion status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Task GID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskRequest'
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSingle'
+        '400':
+          description: No valid fields provided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tasks/{id}/addProject:
+    post:
+      operationId: addTaskToProject
+      summary: Add a task to a project (or move it)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Task GID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddProjectRequest'
+      responses:
+        '200':
+          description: Task added to project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSingle'
+        '400':
+          description: Missing project field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
